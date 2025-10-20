@@ -1,0 +1,1870 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MarketHub Driver App</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState, useRef } = React;
+        
+        // IMPORTANT: Update this URL to your actual WordPress site
+        const API_BASE = 'https://your-site.com/wp-json/markethub/v1';
+        
+        const User = ({ className }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>;
+        const Package = ({ className }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>;
+        const ShoppingCart = ({ className }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /></svg>;
+        const DollarSign = ({ className }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
+        const CheckCircle = ({ className }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
+        const AlertCircle = ({ className }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
+        const Clock = ({ className }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
+        const LogOut = ({ className }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>;
+
+        const MarketHubDriverApp = () => {
+          const [isLoggedIn, setIsLoggedIn] = useState(false);
+          const [authToken, setAuthToken] = useState('');
+          const [driverName, setDriverName] = useState('');
+          const [username, setUsername] = useState('');
+          const [password, setPassword] = useState('');
+          const [orders, setOrders] = useState([]);
+          const [currentOrder, setCurrentOrder] = useState(null);
+          const [step, setStep] = useState(0);
+          const [shoppingLog, setShoppingLog] = useState({});
+          const [signature, setSignature] = useState('');
+          const [idPhoto, setIdPhoto] = useState('');
+          const [loginError, setLoginError] = useState('');
+          const [loading, setLoading] = useState(false);
+          
+          const signatureRef = useRef(null);
+          const [isDrawing, setIsDrawing] = useState(false);
+
+          const handleLogin = async () => {
+            setLoading(true);
+            setLoginError('');
+
+            try {
+              const response = await fetch(`${API_BASE}/driver/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+              });
+
+              const data = await response.json();
+              
+              if (data.success) {
+                setAuthToken(data.token);
+                setDriverName(data.driver_name);
+                setIsLoggedIn(true);
+                loadOrders(data.token);
+              } else {
+                setLoginError(data.message || 'Invalid credentials or insufficient permissions');
+              }
+            } catch (error) {
+              setLoginError('Connection error. Please try again.');
+            }
+            setLoading(false);
+          };
+
+          const loadOrders = async (token) => {
+            try {
+              const response = await fetch(`${API_BASE}/driver/orders`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+              });
+              const data = await response.json();
+              if (data.success) {
+                setOrders(data.orders);
+              }
+            } catch (error) {
+              console.error('Error loading orders:', error);
+            }
+          };
+
+          const claimOrder = async (orderId) => {
+            setLoading(true);
+            try {
+              const response = await fetch(`${API_BASE}/driver/claim`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${authToken}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ order_id: orderId })
+              });
+
+              const data = await response.json();
+              
+              if (data.success) {
+                setCurrentOrder(data.order);
+                setStep(1);
+                initializeShoppingLog(data.order.items);
+              } else {
+                alert(data.message || 'Order unavailable');
+                loadOrders(authToken);
+              }
+            } catch (error) {
+              alert('Error claiming order');
+            }
+            setLoading(false);
+          };
+
+          const initializeShoppingLog = (items) => {
+            const log = {};
+            items.forEach(item => {
+              log[item.id] = {
+                status: 'pending',
+                name: item.name,
+                site_price: item.price,
+                actual_cost: item.price,
+                substituted_name: ''
+              };
+            });
+            setShoppingLog(log);
+          };
+
+          const updateItemStatus = (itemId, status, actualCost = null, substitutedName = '') => {
+            setShoppingLog(prev => ({
+              ...prev,
+              [itemId]: {
+                ...prev[itemId],
+                status,
+                actual_cost: actualCost || prev[itemId].actual_cost,
+                substituted_name: substitutedName
+              }
+            }));
+          };
+
+          const calculateTruePrice = (sitePrice) => {
+            return (parseFloat(sitePrice) * 0.965) - 1.00;
+          };
+
+          const completeShopping = async () => {
+            setLoading(true);
+            try {
+              const response = await fetch(`${API_BASE}/driver/shopping-complete`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${authToken}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  order_id: currentOrder.id,
+                  shopping_log: shoppingLog
+                })
+              });
+
+              const data = await response.json();
+              if (data.success) {
+                setStep(2);
+              }
+            } catch (error) {
+              alert('Error completing shopping');
+            }
+            setLoading(false);
+          };
+
+          const requestCash = async () => {
+            setLoading(true);
+            try {
+              const response = await fetch(`${API_BASE}/driver/request-cash`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${authToken}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ order_id: currentOrder.id })
+              });
+
+              const data = await response.json();
+              if (data.success) {
+                alert('Cash request sent to admin');
+                setStep(3);
+              }
+            } catch (error) {
+              alert('Error requesting cash');
+            }
+            setLoading(false);
+          };
+
+          const startDrawing = (e) => {
+            setIsDrawing(true);
+            const canvas = signatureRef.current;
+            const ctx = canvas.getContext('2d');
+            const rect = canvas.getBoundingClientRect();
+            ctx.beginPath();
+            ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+          };
+
+          const draw = (e) => {
+            if (!isDrawing) return;
+            const canvas = signatureRef.current;
+            const ctx = canvas.getContext('2d');
+            const rect = canvas.getBoundingClientRect();
+            ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+            ctx.stroke();
+          };
+
+          const stopDrawing = () => {
+            setIsDrawing(false);
+            if (signatureRef.current) {
+              setSignature(signatureRef.current.toDataURL());
+            }
+          };
+
+          const clearSignature = () => {
+            const canvas = signatureRef.current;
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            setSignature('');
+          };
+
+          const captureIdPhoto = (e) => {
+            const file = e.target.files[0];
+            if (file) {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                setIdPhoto(reader.result);
+              };
+              reader.readAsDataURL(file);
+            }
+          };
+
+          const completeDelivery = async () => {
+            if (!signature || !idPhoto) {
+              alert('Please capture both signature and ID photo');
+              return;
+            }
+
+            setLoading(true);
+            try {
+              const response = await fetch(`${API_BASE}/driver/complete-delivery`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${authToken}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  order_id: currentOrder.id,
+                  signature,
+                  id_photo: idPhoto
+                })
+              });
+
+              const data = await response.json();
+              if (data.success) {
+                alert('Delivery completed successfully!');
+                setCurrentOrder(null);
+                setStep(0);
+                setSignature('');
+                setIdPhoto('');
+                loadOrders(authToken);
+              }
+            } catch (error) {
+              alert('Error completing delivery');
+            }
+            setLoading(false);
+          };
+
+          const sendWhatsAppMessage = () => {
+            const message = `Hello! I'm your MarketHub driver delivering Order #${currentOrder.id}. I'm arriving shortly with your items.`;
+            const phone = currentOrder.collector_phone || '';
+            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+          };
+
+          const handleLogout = () => {
+            setIsLoggedIn(false);
+            setAuthToken('');
+            setCurrentOrder(null);
+            setStep(0);
+          };
+
+          if (!isLoggedIn) {
+            return (
+              <div className="min-h-screen bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center p-4">
+                <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-md">
+                  <div className="text-center mb-8">
+                    <Package className="w-16 h-16 text-blue-600 mx-auto mb-4" />
+                    <h1 className="text-3xl font-bold text-gray-800">MarketHub Driver</h1>
+                    <p className="text-gray-600 mt-2">Login to start deliveries</p>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Username</label>
+                      <input
+                        type="text"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Enter your username"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
+                      <input
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Enter your password"
+                      />
+                    </div>
+
+                    {loginError && (
+                      <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2">
+                        <AlertCircle className="w-5 h-5" />
+                        <span className="text-sm">{loginError}</span>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={handleLogin}
+                      disabled={loading}
+                      className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition disabled:opacity-50"
+                    >
+                      {loading ? 'Logging in...' : 'Login'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          const steps = ['Orders', 'Shopping', 'Payment', 'Delivery'];
+          const progressPercent = (step / (steps.length - 1)) * 100;
+
+          return (
+            <div className="min-h-screen bg-gray-50">
+              <div className="bg-blue-600 text-white p-4 shadow-lg">
+                <div className="max-w-4xl mx-auto flex justify-between items-center">
+                  <div className="flex items-center gap-3">
+                    <User className="w-6 h-6" />
+                    <div>
+                      <div className="font-semibold">{driverName}</div>
+                      <div className="text-xs text-blue-100">MarketHub Driver</div>
+                    </div>
+                  </div>
+                  <button onClick={handleLogout} className="flex items-center gap-2 bg-blue-700 px-4 py-2 rounded-lg hover:bg-blue-800">
+                    <LogOut className="w-4 h-4" />
+                    <span>Logout</span>
+                  </button>
+                </div>
+              </div>
+
+              {currentOrder && (
+                <div className="bg-white border-b">
+                  <div className="max-w-4xl mx-auto p-4">
+                    <div className="flex justify-between mb-2">
+                      {steps.map((stepName, idx) => (
+                        <div key={idx} className={`text-sm font-medium ${idx <= step ? 'text-blue-600' : 'text-gray-400'}`}>
+                          {stepName}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <div className="h-full bg-blue-600 transition-all duration-300" style={{ width: `${progressPercent}%` }} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="max-w-4xl mx-auto p-4">
+                {step === 0 && !currentOrder && (
+                  <div className="space-y-4">
+                    <h2 className="text-2xl font-bold text-gray-800 mb-4">Available Orders</h2>
+                    {orders.length === 0 ? (
+                      <div className="bg-white rounded-lg p-8 text-center">
+                        <Clock className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                        <p className="text-gray-600">No orders available at the moment</p>
+                      </div>
+                    ) : (
+                      orders.map(order => (
+                        <div key={order.id} className="bg-white rounded-lg shadow p-6">
+                          <div className="flex justify-between items-start mb-4">
+                            <div>
+                              <h3 className="text-xl font-bold text-gray-800">Order #{order.id}</h3>
+                              <p className="text-gray-600 mt-1">{order.customer_name}</p>
+                              <p className="text-sm text-gray-500 mt-1">{order.delivery_address}</p>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-2xl font-bold text-blue-600">${order.total}</div>
+                              <div className="text-sm text-gray-500">{order.item_count} items</div>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => claimOrder(order.id)}
+                            disabled={loading}
+                            className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition disabled:opacity-50"
+                          >
+                            Accept Order
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+
+                {step === 1 && currentOrder && (
+                  <div className="space-y-4">
+                    <div className="bg-white rounded-lg shadow p-6">
+                      <h2 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                        <ShoppingCart className="w-6 h-6" />
+                        Shopping - Order #{currentOrder.id}
+                      </h2>
+                      <p className="text-gray-600 mb-6">Collector: {currentOrder.collector_name}</p>
+
+                      <div className="space-y-4">
+                        {currentOrder.items.map(item => {
+                          const truePrice = calculateTruePrice(item.price);
+                          const itemLog = shoppingLog[item.id];
+                          const showAlert = itemLog && itemLog.status === 'substituted' && parseFloat(itemLog.actual_cost) > truePrice;
+
+                          return (
+                            <div key={item.id} className="border rounded-lg p-4">
+                              <div className="flex gap-4">
+                                {item.image && (
+                                  <img src={item.image} alt={item.name} className="w-20 h-20 object-cover rounded" />
+                                )}
+                                <div className="flex-1">
+                                  <h4 className="font-semibold text-gray-800">{item.name}</h4>
+                                  <p className="text-sm text-gray-600">Site Price: ${item.price}</p>
+                                  <p className="text-sm text-blue-600">True Store Price: ${truePrice.toFixed(2)}</p>
+                                  
+                                  <div className="mt-3 space-y-2">
+                                    <button
+                                      onClick={() => updateItemStatus(item.id, 'confirmed')}
+                                      className={`px-4 py-2 rounded mr-2 ${itemLog?.status === 'confirmed' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700'}`}
+                                    >
+                                      Found
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        const newName = prompt('Enter substituted product name:');
+                                        const newCost = prompt('Enter actual cost:');
+                                        if (newName && newCost) {
+                                          updateItemStatus(item.id, 'substituted', parseFloat(newCost), newName);
+                                        }
+                                      }}
+                                      className={`px-4 py-2 rounded mr-2 ${itemLog?.status === 'substituted' ? 'bg-yellow-600 text-white' : 'bg-gray-200 text-gray-700'}`}
+                                    >
+                                      Substitute
+                                    </button>
+                                    <button
+                                      onClick={() => updateItemStatus(item.id, 'out_of_stock')}
+                                      className={`px-4 py-2 rounded ${itemLog?.status === 'out_of_stock' ? 'bg-red-600 text-white' : 'bg-gray-200 text-gray-700'}`}
+                                    >
+                                      Out of Stock
+                                    </button>
+                                  </div>
+
+                                  {showAlert && (
+                                    <div className="mt-2 bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm">
+                                      <strong>Price Alert!</strong> Actual cost (${itemLog.actual_cost}) exceeds true price!
+                                    </div>
+                                  )}
+
+                                  {itemLog?.status === 'substituted' && (
+                                    <div className="mt-2 text-sm text-gray-600">
+                                      <div>Substituted: {itemLog.substituted_name}</div>
+                                      <div>Actual Cost: ${itemLog.actual_cost}</div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <button
+                        onClick={completeShopping}
+                        disabled={loading || Object.values(shoppingLog).some(item => item.status === 'pending')}
+                        className="w-full mt-6 bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition disabled:opacity-50"
+                      >
+                        All Items Collected
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {step === 2 && currentOrder && (
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <h2 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                      <DollarSign className="w-6 h-6" />
+                      Request Cash Funds
+                    </h2>
+                    <p className="text-gray-600 mb-4">Order #{currentOrder.id}</p>
+                    <p className="text-lg mb-6">Final Cost: ${Object.values(shoppingLog).reduce((sum, item) => sum + (item.status !== 'out_of_stock' ? parseFloat(item.actual_cost) : 0), 0).toFixed(2)}</p>
+                    
+                    <button
+                      onClick={requestCash}
+                      disabled={loading}
+                      className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition disabled:opacity-50"
+                    >
+                      Request Cash from Admin
+                    </button>
+                  </div>
+                )}
+
+                {step === 3 && currentOrder && (
+                  <div className="space-y-4">
+                    <div className="bg-white rounded-lg shadow p-6">
+                      <h2 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                        <CheckCircle className="w-6 h-6" />
+                        Proof of Delivery
+                      </h2>
+                      
+                      <button
+                        onClick={sendWhatsAppMessage}
+                        className="w-full mb-6 bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 transition"
+                      >
+                        Send WhatsApp to Collector
+                      </button>
+
+                      <div className="space-y-6">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Collector Signature</label>
+                          <canvas
+                            ref={signatureRef}
+                            width={400}
+                            height={200}
+                            onMouseDown={startDrawing}
+                            onMouseMove={draw}
+                            onMouseUp={stopDrawing}
+                            onMouseLeave={stopDrawing}
+                            className="border-2 border-gray-300 rounded w-full cursor-crosshair"
+                          />
+                          <button onClick={clearSignature} className="mt-2 text-sm text-blue-600 hover:underline">
+                            Clear Signature
+                          </button>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Collector ID Photo</label>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            capture="environment"
+                            onChange={captureIdPhoto}
+                            className="w-full border border-gray-300 rounded-lg p-2"
+                          />
+                          {idPhoto && (
+                            <img src={idPhoto} alt="ID Preview" className="mt-2 max-w-full h-48 object-contain border rounded" />
+                          )}
+                        </div>
+
+                        <button
+                          onClick={completeDelivery}
+                          disabled={loading || !signature || !idPhoto}
+                          className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition disabled:opacity-50"
+                        >
+                          Confirm Delivery Complete
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        };
+
+        // Render the app
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<MarketHubDriverApp />);
+    </script>
+</body>
+</html>
+
+/**
+ * MarketHub Driver/Shopper System - WordPress Code Snippets
+ * Add these snippets using Code Snippets plugin or functions.php
+ */
+
+// ==========================================
+// SNIPPET 1: Register Custom User Role
+// ==========================================
+add_action('init', 'markethub_register_driver_role');
+function markethub_register_driver_role() {
+    add_role(
+        'markethub_driver',
+        'MarketHub Driver',
+        array(
+            'read' => true,
+        )
+    );
+}
+
+// ==========================================
+// SNIPPET 2: Register Custom Order Status
+// ==========================================
+add_action('init', 'markethub_register_order_statuses');
+function markethub_register_order_statuses() {
+    register_post_status('wc-driver-claimed', array(
+        'label'                     => 'Driver Claimed',
+        'public'                    => true,
+        'exclude_from_search'       => false,
+        'show_in_admin_all_list'    => true,
+        'show_in_admin_status_list' => true,
+        'label_count'               => _n_noop('Driver Claimed <span class="count">(%s)</span>', 'Driver Claimed <span class="count">(%s)</span>')
+    ));
+    
+    register_post_status('wc-delivered', array(
+        'label'                     => 'Completed - Delivered',
+        'public'                    => true,
+        'exclude_from_search'       => false,
+        'show_in_admin_all_list'    => true,
+        'show_in_admin_status_list' => true,
+        'label_count'               => _n_noop('Delivered <span class="count">(%s)</span>', 'Delivered <span class="count">(%s)</span>')
+    ));
+}
+
+add_filter('wc_order_statuses', 'markethub_add_order_statuses');
+function markethub_add_order_statuses($order_statuses) {
+    $order_statuses['wc-driver-claimed'] = 'Driver Claimed';
+    $order_statuses['wc-delivered'] = 'Completed - Delivered';
+    return $order_statuses;
+}
+
+// ==========================================
+// SNIPPET 3: REST API Endpoints
+// ==========================================
+add_action('rest_api_init', 'markethub_register_api_routes');
+function markethub_register_api_routes() {
+    
+    // Driver Login
+    register_rest_route('markethub/v1', '/driver/login', array(
+        'methods' => 'POST',
+        'callback' => 'markethub_driver_login',
+        'permission_callback' => '__return_true'
+    ));
+    
+    // Get Available Orders
+    register_rest_route('markethub/v1', '/driver/orders', array(
+        'methods' => 'GET',
+        'callback' => 'markethub_get_available_orders',
+        'permission_callback' => 'markethub_verify_driver_token'
+    ));
+    
+    // Claim Order
+    register_rest_route('markethub/v1', '/driver/claim', array(
+        'methods' => 'POST',
+        'callback' => 'markethub_claim_order',
+        'permission_callback' => 'markethub_verify_driver_token'
+    ));
+    
+    // Shopping Complete
+    register_rest_route('markethub/v1', '/driver/shopping-complete', array(
+        'methods' => 'POST',
+        'callback' => 'markethub_shopping_complete',
+        'permission_callback' => 'markethub_verify_driver_token'
+    ));
+    
+    // Request Cash
+    register_rest_route('markethub/v1', '/driver/request-cash', array(
+        'methods' => 'POST',
+        'callback' => 'markethub_request_cash',
+        'permission_callback' => 'markethub_verify_driver_token'
+    ));
+    
+    // Complete Delivery
+    register_rest_route('markethub/v1', '/driver/complete-delivery', array(
+        'methods' => 'POST',
+        'callback' => 'markethub_complete_delivery',
+        'permission_callback' => 'markethub_verify_driver_token'
+    ));
+}
+
+// ==========================================
+// SNIPPET 4: Authentication Functions
+// ==========================================
+function markethub_driver_login($request) {
+    $username = sanitize_text_field($request->get_param('username'));
+    $password = $request->get_param('password');
+    
+    $user = wp_authenticate($username, $password);
+    
+    if (is_wp_error($user)) {
+        return new WP_REST_Response(array(
+            'success' => false,
+            'message' => 'Invalid credentials'
+        ), 401);
+    }
+    
+    // Check if user has driver role
+    if (!in_array('markethub_driver', $user->roles) && !in_array('administrator', $user->roles)) {
+        return new WP_REST_Response(array(
+            'success' => false,
+            'message' => 'You do not have driver permissions'
+        ), 403);
+    }
+    
+    // Generate secure token
+    $token = wp_generate_password(32, false);
+    $token_hash = wp_hash_password($token);
+    
+    update_user_meta($user->ID, '_mh_driver_token', $token_hash);
+    update_user_meta($user->ID, '_mh_token_expiry', time() + (24 * 60 * 60)); // 24 hours
+    
+    return new WP_REST_Response(array(
+        'success' => true,
+        'token' => $token,
+        'driver_name' => $user->display_name,
+        'user_id' => $user->ID
+    ), 200);
+}
+
+function markethub_verify_driver_token($request) {
+    $auth_header = $request->get_header('authorization');
+    
+    if (!$auth_header || strpos($auth_header, 'Bearer ') !== 0) {
+        return false;
+    }
+    
+    $token = str_replace('Bearer ', '', $auth_header);
+    
+    $users = get_users(array(
+        'role__in' => array('markethub_driver', 'administrator'),
+        'meta_key' => '_mh_driver_token'
+    ));
+    
+    foreach ($users as $user) {
+        $stored_hash = get_user_meta($user->ID, '_mh_driver_token', true);
+        $expiry = get_user_meta($user->ID, '_mh_token_expiry', true);
+        
+        if (wp_check_password($token, $stored_hash) && time() < $expiry) {
+            $request->set_param('driver_user_id', $user->ID);
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+function markethub_get_driver_from_request($request) {
+    return get_user_by('ID', $request->get_param('driver_user_id'));
+}
+
+// ==========================================
+// SNIPPET 5: Get Available Orders
+// ==========================================
+function markethub_get_available_orders($request) {
+    $orders = wc_get_orders(array(
+        'status' => array('processing', 'pending'),
+        'limit' => -1,
+        'meta_query' => array(
+            array(
+                'key' => '_mh_driver_id',
+                'compare' => 'NOT EXISTS'
+            )
+        )
+    ));
+    
+    $available_orders = array();
+    
+    foreach ($orders as $order) {
+        $items = array();
+        foreach ($order->get_items() as $item) {
+            $product = $item->get_product();
+            $items[] = array(
+                'id' => $item->get_id(),
+                'name' => $item->get_name(),
+                'price' => $item->get_total(),
+                'quantity' => $item->get_quantity(),
+                'image' => $product ? wp_get_attachment_url($product->get_image_id()) : ''
+            );
+        }
+        
+        $available_orders[] = array(
+            'id' => $order->get_id(),
+            'customer_name' => $order->get_billing_first_name() . ' ' . $order->get_billing_last_name(),
+            'delivery_address' => $order->get_billing_address_1() . ', ' . $order->get_billing_city(),
+            'total' => $order->get_total(),
+            'item_count' => count($items),
+            'items' => $items
+        );
+    }
+    
+    return new WP_REST_Response(array(
+        'success' => true,
+        'orders' => $available_orders
+    ), 200);
+}
+
+// ==========================================
+// SNIPPET 6: Claim Order
+// ==========================================
+function markethub_claim_order($request) {
+    $order_id = intval($request->get_param('order_id'));
+    $driver = markethub_get_driver_from_request($request);
+    
+    if (!$order_id || !$driver) {
+        return new WP_REST_Response(array(
+            'success' => false,
+            'message' => 'Invalid request'
+        ), 400);
+    }
+    
+    $order = wc_get_order($order_id);
+    
+    if (!$order) {
+        return new WP_REST_Response(array(
+            'success' => false,
+            'message' => 'Order not found'
+        ), 404);
+    }
+    
+    // Check if already claimed
+    $existing_driver = $order->get_meta('_mh_driver_id');
+    
+    if ($existing_driver) {
+        return new WP_REST_Response(array(
+            'success' => false,
+            'message' => 'Order already claimed by another driver'
+        ), 409);
+    }
+    
+    // Claim the order
+    $order->update_meta_data('_mh_driver_id', $driver->ID);
+    $order->update_meta_data('_mh_driver_name', $driver->display_name);
+    $order->update_meta_data('_mh_claimed_time', current_time('mysql'));
+    $order->set_status('driver-claimed');
+    $order->save();
+    
+    // Get order details
+    $items = array();
+    foreach ($order->get_items() as $item) {
+        $product = $item->get_product();
+        $items[] = array(
+            'id' => $item->get_id(),
+            'name' => $item->get_name(),
+            'price' => $item->get_total(),
+            'quantity' => $item->get_quantity(),
+            'image' => $product ? wp_get_attachment_url($product->get_image_id()) : ''
+        );
+    }
+    
+    return new WP_REST_Response(array(
+        'success' => true,
+        'order' => array(
+            'id' => $order->get_id(),
+            'customer_name' => $order->get_billing_first_name() . ' ' . $order->get_billing_last_name(),
+            'delivery_address' => $order->get_billing_address_1() . ', ' . $order->get_billing_city(),
+            'collector_name' => $order->get_meta('_mh_collector_name') ?: 'Customer',
+            'collector_phone' => $order->get_billing_phone(),
+            'total' => $order->get_total(),
+            'items' => $items
+        )
+    ), 200);
+}
+
+// ==========================================
+// SNIPPET 7: Shopping Complete
+// ==========================================
+function markethub_shopping_complete($request) {
+    $order_id = intval($request->get_param('order_id'));
+    $shopping_log = $request->get_param('shopping_log');
+    $driver = markethub_get_driver_from_request($request);
+    
+    if (!$order_id || !$shopping_log || !$driver) {
+        return new WP_REST_Response(array(
+            'success' => false,
+            'message' => 'Invalid request'
+        ), 400);
+    }
+    
+    $order = wc_get_order($order_id);
+    
+    if (!$order) {
+        return new WP_REST_Response(array(
+            'success' => false,
+            'message' => 'Order not found'
+        ), 404);
+    }
+    
+    // Verify driver owns this order
+    if ($order->get_meta('_mh_driver_id') != $driver->ID) {
+        return new WP_REST_Response(array(
+            'success' => false,
+            'message' => 'Unauthorized'
+        ), 403);
+    }
+    
+    // Calculate final cost
+    $final_cost = 0;
+    foreach ($shopping_log as $item) {
+        if ($item['status'] !== 'out_of_stock') {
+            $final_cost += floatval($item['actual_cost']);
+        }
+    }
+    
+    // Save shopping log and final cost
+    $order->update_meta_data('_mh_shopping_log', json_encode($shopping_log));
+    $order->update_meta_data('_mh_final_cost', $final_cost);
+    $order->update_meta_data('_mh_shopping_complete_time', current_time('mysql'));
+    $order->save();
+    
+    return new WP_REST_Response(array(
+        'success' => true,
+        'final_cost' => $final_cost
+    ), 200);
+}
+
+// ==========================================
+// SNIPPET 8: Request Cash
+// ==========================================
+function markethub_request_cash($request) {
+    $order_id = intval($request->get_param('order_id'));
+    $driver = markethub_get_driver_from_request($request);
+    
+    if (!$order_id || !$driver) {
+        return new WP_REST_Response(array(
+            'success' => false,
+            'message' => 'Invalid request'
+        ), 400);
+    }
+    
+    $order = wc_get_order($order_id);
+    
+    if (!$order || $order->get_meta('_mh_driver_id') != $driver->ID) {
+        return new WP_REST_Response(array(
+            'success' => false,
+            'message' => 'Unauthorized'
+        ), 403);
+    }
+    
+    $final_cost = $order->get_meta('_mh_final_cost');
+    
+    // Send email to admin
+    $admin_email = get_option('admin_email');
+    $subject = 'MarketHub Cash Request - Order #' . $order_id;
+    
+    $message = "Driver Cash Request\n\n";
+    $message .= "Driver: " . $driver->display_name . "\n";
+    $message .= "Order ID: #" . $order_id . "\n";
+    $message .= "Final Cost: $" . number_format($final_cost, 2) . " TTD\n";
+    $message .= "Customer: " . $order->get_billing_first_name() . ' ' . $order->get_billing_last_name() . "\n";
+    $message .= "Delivery Address: " . $order->get_billing_address_1() . "\n\n";
+    $message .= "Please arrange cash transfer to driver.\n";
+    
+    wp_mail($admin_email, $subject, $message);
+    
+    $order->update_meta_data('_mh_cash_requested_time', current_time('mysql'));
+    $order->save();
+    
+    return new WP_REST_Response(array(
+        'success' => true,
+        'message' => 'Cash request sent to admin'
+    ), 200);
+}
+
+// ==========================================
+// SNIPPET 9: Complete Delivery with POD
+// ==========================================
+function markethub_complete_delivery($request) {
+    $order_id = intval($request->get_param('order_id'));
+    $signature_data = $request->get_param('signature');
+    $id_photo_data = $request->get_param('id_photo');
+    $driver = markethub_get_driver_from_request($request);
+    
+    if (!$order_id || !$signature_data || !$id_photo_data || !$driver) {
+        return new WP_REST_Response(array(
+            'success' => false,
+            'message' => 'Invalid request - missing data'
+        ), 400);
+    }
+    
+    $order = wc_get_order($order_id);
+    
+    if (!$order || $order->get_meta('_mh_driver_id') != $driver->ID) {
+        return new WP_REST_Response(array(
+            'success' => false,
+            'message' => 'Unauthorized'
+        ), 403);
+    }
+    
+    // Create secure upload directory
+    $upload_dir = wp_upload_dir();
+    $secure_dir = $upload_dir['basedir'] . '/secure_pods/';
+    
+    if (!file_exists($secure_dir)) {
+        wp_mkdir_p($secure_dir);
+        
+        // Create .htaccess to deny access
+        $htaccess_content = "Order Deny,Allow\nDeny from all";
+        file_put_contents($secure_dir . '.htaccess', $htaccess_content);
+    }
+    
+    // Save signature
+    $signature_decoded = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $signature_data));
+    $signature_filename = 'signature_' . $order_id . '_' . time() . '.png';
+    $signature_path = $secure_dir . $signature_filename;
+    file_put_contents($signature_path, $signature_decoded);
+    
+    // Save ID photo
+    $id_photo_decoded = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $id_photo_data));
+    $id_filename = 'id_photo_' . $order_id . '_' . time() . '.jpg';
+    $id_path = $secure_dir . $id_filename;
+    file_put_contents($id_path, $id_photo_decoded);
+    
+    // Update order with POD data
+    $order->update_meta_data('_mh_signature_path', $signature_path);
+    $order->update_meta_data('_mh_id_photo_path', $id_path);
+    $order->update_meta_data('_mh_delivery_complete_time', current_time('mysql'));
+    $order->set_status('delivered');
+    $order->save();
+    
+    return new WP_REST_Response(array(
+        'success' => true,
+        'message' => 'Delivery completed successfully'
+    ), 200);
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Employee Confirmation Panel</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState } = React;
+        
+        // IMPORTANT: Update this URL to your actual WordPress site
+        const API_BASE = 'https://your-site.com/wp-json/markethub/v1';
+        
+        const Mail = ({ className }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>;
+        const Package = ({ className }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>;
+        const CheckCircle = ({ className }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
+        const XCircle = ({ className }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
+        const Clock = ({ className }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
+        const User = ({ className }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>;
+        const LogOut = ({ className }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>;
+        const AlertCircle = ({ className }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
+
+        const EmployeeConfirmationPanel = () => {
+          const [isLoggedIn, setIsLoggedIn] = useState(false);
+          const [email, setEmail] = useState('');
+          const [password, setPassword] = useState('');
+          const [authToken, setAuthToken] = useState('');
+          const [employeeName, setEmployeeName] = useState('');
+          const [orders, setOrders] = useState([]);
+          const [loginError, setLoginError] = useState('');
+          const [loading, setLoading] = useState(false);
+          const [successMessage, setSuccessMessage] = useState('');
+
+          const handleLogin = async () => {
+            setLoading(true);
+            setLoginError('');
+
+            try {
+              const response = await fetch(`${API_BASE}/employee/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+              });
+
+              const data = await response.json();
+              
+              if (data.success) {
+                setAuthToken(data.token);
+                setEmployeeName(data.employee_name);
+                setIsLoggedIn(true);
+                loadPendingOrders(data.token);
+              } else {
+                setLoginError(data.message || 'Invalid credentials');
+              }
+            } catch (error) {
+              setLoginError('Connection error. Please try again.');
+            }
+            setLoading(false);
+          };
+
+          const loadPendingOrders = async (token) => {
+            setLoading(true);
+            try {
+              const response = await fetch(`${API_BASE}/employee/pending-orders`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+              });
+              const data = await response.json();
+              if (data.success) {
+                setOrders(data.orders);
+              }
+            } catch (error) {
+              console.error('Error loading orders:', error);
+            }
+            setLoading(false);
+          };
+
+          const confirmOrder = async (orderId, action) => {
+            setLoading(true);
+            setSuccessMessage('');
+            
+            try {
+              const response = await fetch(`${API_BASE}/employee/confirm-order`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${authToken}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ 
+                  order_id: orderId,
+                  action: action
+                })
+              });
+
+              const data = await response.json();
+              
+              if (data.success) {
+                setSuccessMessage(`Order #${orderId} ${action === 'approve' ? 'approved' : 'rejected'} successfully`);
+                loadPendingOrders(authToken);
+                setTimeout(() => setSuccessMessage(''), 3000);
+              } else {
+                alert(data.message || 'Error processing order');
+              }
+            } catch (error) {
+              alert('Connection error');
+            }
+            setLoading(false);
+          };
+
+          const handleLogout = () => {
+            setIsLoggedIn(false);
+            setAuthToken('');
+            setOrders([]);
+            setEmail('');
+            setPassword('');
+          };
+
+          const handleKeyPress = (e) => {
+            if (e.key === 'Enter') {
+              handleLogin();
+            }
+          };
+
+          if (!isLoggedIn) {
+            return (
+              <div className="min-h-screen bg-gradient-to-br from-purple-600 to-indigo-800 flex items-center justify-center p-4">
+                <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-md">
+                  <div className="text-center mb-8">
+                    <Mail className="w-16 h-16 text-purple-600 mx-auto mb-4" />
+                    <h1 className="text-3xl font-bold text-gray-800">Employee Portal</h1>
+                    <p className="text-gray-600 mt-2">Order Confirmation Panel</p>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        onKeyPress={handleKeyPress}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        placeholder="your.email@company.com"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
+                      <input
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        onKeyPress={handleKeyPress}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        placeholder="Enter your password"
+                      />
+                    </div>
+
+                    {loginError && (
+                      <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2">
+                        <AlertCircle className="w-5 h-5" />
+                        <span className="text-sm">{loginError}</span>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={handleLogin}
+                      disabled={loading || !email || !password}
+                      className="w-full bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700 transition disabled:opacity-50"
+                    >
+                      {loading ? 'Logging in...' : 'Login'}
+                    </button>
+                  </div>
+
+                  <div className="mt-6 text-center text-sm text-gray-500">
+                    <p>For employee access only</p>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div className="min-h-screen bg-gray-50">
+              <div className="bg-purple-600 text-white p-4 shadow-lg">
+                <div className="max-w-6xl mx-auto flex justify-between items-center">
+                  <div className="flex items-center gap-3">
+                    <User className="w-6 h-6" />
+                    <div>
+                      <div className="font-semibold">{employeeName}</div>
+                      <div className="text-xs text-purple-100">Order Confirmation</div>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={handleLogout} 
+                    className="flex items-center gap-2 bg-purple-700 px-4 py-2 rounded-lg hover:bg-purple-800 transition"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>Logout</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="max-w-6xl mx-auto p-4">
+                {successMessage && (
+                  <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg flex items-center gap-2">
+                    <CheckCircle className="w-5 h-5" />
+                    <span>{successMessage}</span>
+                  </div>
+                )}
+
+                <div className="mb-6">
+                  <h2 className="text-2xl font-bold text-gray-800 mb-2">Pending Payment Confirmations</h2>
+                  <p className="text-gray-600">Review and confirm bank transfer orders</p>
+                </div>
+
+                {loading && !orders.length ? (
+                  <div className="bg-white rounded-lg p-8 text-center">
+                    <Clock className="w-16 h-16 text-gray-400 mx-auto mb-4 animate-spin" />
+                    <p className="text-gray-600">Loading orders...</p>
+                  </div>
+                ) : orders.length === 0 ? (
+                  <div className="bg-white rounded-lg p-8 text-center">
+                    <Package className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-600">No pending orders to confirm</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {orders.map(order => (
+                      <div key={order.id} className="bg-white rounded-lg shadow-lg overflow-hidden">
+                        <div className="p-6">
+                          <div className="flex justify-between items-start mb-4">
+                            <div>
+                              <h3 className="text-xl font-bold text-gray-800">Order #{order.id}</h3>
+                              <p className="text-gray-600 mt-1">
+                                <span className="font-medium">{order.customer_name}</span>
+                              </p>
+                              <p className="text-sm text-gray-500 mt-1">
+                                {order.customer_email} â€¢ {order.customer_phone}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-2xl font-bold text-purple-600">
+                                ${parseFloat(order.total).toFixed(2)}
+                              </div>
+                              <div className="text-sm text-gray-500 mt-1">
+                                {order.item_count} {order.item_count === 1 ? 'item' : 'items'}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="border-t border-gray-200 pt-4 mb-4">
+                            <h4 className="font-semibold text-gray-700 mb-3">Order Details</h4>
+                            <div className="space-y-2">
+                              {order.items.map((item, idx) => (
+                                <div key={idx} className="flex justify-between text-sm">
+                                  <span className="text-gray-700">
+                                    {item.quantity}x {item.name}
+                                  </span>
+                                  <span className="text-gray-600 font-medium">
+                                    ${parseFloat(item.total).toFixed(2)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="border-t border-gray-200 pt-4 mb-4">
+                            <div className="grid grid-cols-2 gap-4 text-sm">
+                              <div>
+                                <span className="text-gray-500">Payment Method:</span>
+                                <p className="font-medium text-gray-800">{order.payment_method}</p>
+                              </div>
+                              <div>
+                                <span className="text-gray-500">Order Date:</span>
+                                <p className="font-medium text-gray-800">{order.date}</p>
+                              </div>
+                              <div>
+                                <span className="text-gray-500">Delivery Address:</span>
+                                <p className="font-medium text-gray-800">{order.delivery_address}</p>
+                              </div>
+                              <div>
+                                <span className="text-gray-500">Status:</span>
+                                <p className="font-medium text-yellow-600">{order.status}</p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {order.transaction_id && (
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                              <p className="text-sm text-blue-800">
+                                <span className="font-semibold">Transaction ID:</span> {order.transaction_id}
+                              </p>
+                            </div>
+                          )}
+
+                          {order.customer_note && (
+                            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4">
+                              <p className="text-sm text-gray-600">
+                                <span className="font-semibold">Customer Note:</span> {order.customer_note}
+                              </p>
+                            </div>
+                          )}
+
+                          <div className="flex gap-3">
+                            <button
+                              onClick={() => confirmOrder(order.id, 'approve')}
+                              disabled={loading}
+                              className="flex-1 bg-green-600 text-white py-3 px-4 rounded-lg font-semibold hover:bg-green-700 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                            >
+                              <CheckCircle className="w-5 h-5" />
+                              Approve & Process
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (window.confirm('Are you sure you want to reject this order?')) {
+                                  confirmOrder(order.id, 'reject');
+                                }
+                              }}
+                              disabled={loading}
+                              className="flex-1 bg-red-600 text-white py-3 px-4 rounded-lg font-semibold hover:bg-red-700 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                            >
+                              <XCircle className="w-5 h-5" />
+                              Reject Order
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        };
+
+        // Render the app
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<EmployeeConfirmationPanel />);
+    </script>
+</body>
+</html>
+
+/**
+ * MarketHub Employee Confirmation Panel - WordPress Code Snippets
+ * Add these snippets using Code Snippets plugin or functions.php
+ */
+
+// ==========================================
+// SNIPPET 10: Create Employee Confirmation Table
+// ==========================================
+register_activation_hook(__FILE__, 'markethub_create_employee_table');
+function markethub_create_employee_table() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'mh_employees';
+    
+    $charset_collate = $wpdb->get_charset_collate();
+    
+    $sql = "CREATE TABLE $table_name (
+        id mediumint(9) NOT NULL AUTO_INCREMENT,
+        email varchar(100) NOT NULL,
+        password_hash varchar(255) NOT NULL,
+        name varchar(100) NOT NULL,
+        created_at datetime DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        last_login datetime,
+        is_active tinyint(1) DEFAULT 1 NOT NULL,
+        PRIMARY KEY  (id),
+        UNIQUE KEY email (email)
+    ) $charset_collate;";
+    
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    dbDelta($sql);
+}
+
+// ==========================================
+// SNIPPET 11: Employee Management Functions
+// ==========================================
+// Add employee via admin or code
+function markethub_add_employee($email, $password, $name) {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'mh_employees';
+    
+    $email = sanitize_email($email);
+    $name = sanitize_text_field($name);
+    $password_hash = wp_hash_password($password);
+    
+    $result = $wpdb->insert(
+        $table_name,
+        array(
+            'email' => $email,
+            'password_hash' => $password_hash,
+            'name' => $name
+        ),
+        array('%s', '%s', '%s')
+    );
+    
+    return $result !== false;
+}
+
+// Example: Add employee (run once or via admin panel)
+// markethub_add_employee('employee@example.com', 'SecurePassword123', 'John Doe');
+
+// ==========================================
+// SNIPPET 12: Employee API Endpoints
+// ==========================================
+add_action('rest_api_init', 'markethub_register_employee_routes');
+function markethub_register_employee_routes() {
+    
+    // Employee Login
+    register_rest_route('markethub/v1', '/employee/login', array(
+        'methods' => 'POST',
+        'callback' => 'markethub_employee_login',
+        'permission_callback' => '__return_true'
+    ));
+    
+    // Get Pending Orders
+    register_rest_route('markethub/v1', '/employee/pending-orders', array(
+        'methods' => 'GET',
+        'callback' => 'markethub_get_pending_orders',
+        'permission_callback' => 'markethub_verify_employee_token'
+    ));
+    
+    // Confirm Order
+    register_rest_route('markethub/v1', '/employee/confirm-order', array(
+        'methods' => 'POST',
+        'callback' => 'markethub_confirm_order',
+        'permission_callback' => 'markethub_verify_employee_token'
+    ));
+}
+
+// ==========================================
+// SNIPPET 13: Employee Authentication
+// ==========================================
+function markethub_employee_login($request) {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'mh_employees';
+    
+    $email = sanitize_email($request->get_param('email'));
+    $password = $request->get_param('password');
+    
+    $employee = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM $table_name WHERE email = %s AND is_active = 1",
+        $email
+    ));
+    
+    if (!$employee) {
+        return new WP_REST_Response(array(
+            'success' => false,
+            'message' => 'Invalid credentials'
+        ), 401);
+    }
+    
+    if (!wp_check_password($password, $employee->password_hash)) {
+        return new WP_REST_Response(array(
+            'success' => false,
+            'message' => 'Invalid credentials'
+        ), 401);
+    }
+    
+    // Generate secure token
+    $token = wp_generate_password(32, false);
+    $token_hash = wp_hash_password($token);
+    
+    // Store token in transient (24 hour expiry)
+    set_transient('mh_employee_token_' . $employee->id, $token_hash, 24 * HOUR_IN_SECONDS);
+    
+    // Update last login
+    $wpdb->update(
+        $table_name,
+        array('last_login' => current_time('mysql')),
+        array('id' => $employee->id),
+        array('%s'),
+        array('%d')
+    );
+    
+    return new WP_REST_Response(array(
+        'success' => true,
+        'token' => $token,
+        'employee_name' => $employee->name,
+        'employee_id' => $employee->id
+    ), 200);
+}
+
+function markethub_verify_employee_token($request) {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'mh_employees';
+    
+    $auth_header = $request->get_header('authorization');
+    
+    if (!$auth_header || strpos($auth_header, 'Bearer ') !== 0) {
+        return false;
+    }
+    
+    $token = str_replace('Bearer ', '', $auth_header);
+    
+    // Check all active employees for matching token
+    $employees = $wpdb->get_results("SELECT id FROM $table_name WHERE is_active = 1");
+    
+    foreach ($employees as $employee) {
+        $stored_hash = get_transient('mh_employee_token_' . $employee->id);
+        
+        if ($stored_hash && wp_check_password($token, $stored_hash)) {
+            $request->set_param('employee_id', $employee->id);
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+function markethub_get_employee_from_request($request) {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'mh_employees';
+    
+    $employee_id = $request->get_param('employee_id');
+    
+    return $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM $table_name WHERE id = %d",
+        $employee_id
+    ));
+}
+
+// ==========================================
+// SNIPPET 14: Get Pending Orders for Confirmation
+// ==========================================
+function markethub_get_pending_orders($request) {
+    $employee = markethub_get_employee_from_request($request);
+    
+    if (!$employee) {
+        return new WP_REST_Response(array(
+            'success' => false,
+            'message' => 'Unauthorized'
+        ), 403);
+    }
+    
+    // Get orders with pending payment status (bank transfer)
+    $orders = wc_get_orders(array(
+        'status' => array('pending', 'on-hold'),
+        'limit' => -1,
+        'orderby' => 'date',
+        'order' => 'DESC'
+    ));
+    
+    $pending_orders = array();
+    
+    foreach ($orders as $order) {
+        // Only show orders that need manual confirmation
+        $payment_method = $order->get_payment_method();
+        
+        // Typically bank transfer orders
+        if (in_array($payment_method, array('bacs', 'cheque', 'cod'))) {
+            $items = array();
+            foreach ($order->get_items() as $item) {
+                $items[] = array(
+                    'name' => $item->get_name(),
+                    'quantity' => $item->get_quantity(),
+                    'total' => $item->get_total()
+                );
+            }
+            
+            $pending_orders[] = array(
+                'id' => $order->get_id(),
+                'customer_name' => $order->get_billing_first_name() . ' ' . $order->get_billing_last_name(),
+                'customer_email' => $order->get_billing_email(),
+                'customer_phone' => $order->get_billing_phone(),
+                'delivery_address' => $order->get_billing_address_1() . ', ' . $order->get_billing_city(),
+                'total' => $order->get_total(),
+                'item_count' => count($items),
+                'items' => $items,
+                'payment_method' => $order->get_payment_method_title(),
+                'status' => wc_get_order_status_name($order->get_status()),
+                'date' => $order->get_date_created()->date('Y-m-d H:i:s'),
+                'transaction_id' => $order->get_transaction_id(),
+                'customer_note' => $order->get_customer_note()
+            );
+        }
+    }
+    
+    return new WP_REST_Response(array(
+        'success' => true,
+        'orders' => $pending_orders
+    ), 200);
+}
+
+// ==========================================
+// SNIPPET 15: Confirm or Reject Order
+// ==========================================
+function markethub_confirm_order($request) {
+    $employee = markethub_get_employee_from_request($request);
+    
+    if (!$employee) {
+        return new WP_REST_Response(array(
+            'success' => false,
+            'message' => 'Unauthorized'
+        ), 403);
+    }
+    
+    $order_id = intval($request->get_param('order_id'));
+    $action = sanitize_text_field($request->get_param('action')); // 'approve' or 'reject'
+    
+    if (!$order_id || !in_array($action, array('approve', 'reject'))) {
+        return new WP_REST_Response(array(
+            'success' => false,
+            'message' => 'Invalid request'
+        ), 400);
+    }
+    
+    $order = wc_get_order($order_id);
+    
+    if (!$order) {
+        return new WP_REST_Response(array(
+            'success' => false,
+            'message' => 'Order not found'
+        ), 404);
+    }
+    
+    if ($action === 'approve') {
+        // Move order to processing so drivers can see it
+        $order->set_status('processing');
+        $order->update_meta_data('_mh_approved_by', $employee->name);
+        $order->update_meta_data('_mh_approved_at', current_time('mysql'));
+        $order->add_order_note(
+            sprintf('Payment confirmed by %s. Order ready for driver assignment.', $employee->name)
+        );
+        
+        // Send confirmation email to customer
+        $order->add_order_note('Payment received and confirmed. Your order is being prepared for delivery.');
+        
+        $message = 'Order approved and moved to processing';
+        
+    } else {
+        // Reject order
+        $order->set_status('cancelled');
+        $order->update_meta_data('_mh_rejected_by', $employee->name);
+        $order->update_meta_data('_mh_rejected_at', current_time('mysql'));
+        $order->add_order_note(
+            sprintf('Order rejected by %s. Payment not confirmed.', $employee->name)
+        );
+        
+        $message = 'Order rejected and cancelled';
+    }
+    
+    $order->save();
+    
+    return new WP_REST_Response(array(
+        'success' => true,
+        'message' => $message
+    ), 200);
+}
+
+// ==========================================
+// SNIPPET 16: Admin Page to Manage Employees
+// ==========================================
+add_action('admin_menu', 'markethub_add_employee_admin_page');
+function markethub_add_employee_admin_page() {
+    add_submenu_page(
+        'woocommerce',
+        'MarketHub Employees',
+        'MH Employees',
+        'manage_options',
+        'markethub-employees',
+        'markethub_employee_admin_page'
+    );
+}
+
+function markethub_employee_admin_page() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'mh_employees';
+    
+    // Handle form submission
+    if (isset($_POST['add_employee']) && check_admin_referer('mh_add_employee')) {
+        $email = sanitize_email($_POST['email']);
+        $password = $_POST['password'];
+        $name = sanitize_text_field($_POST['name']);
+        
+        if (markethub_add_employee($email, $password, $name)) {
+            echo '<div class="notice notice-success"><p>Employee added successfully!</p></div>';
+        } else {
+            echo '<div class="notice notice-error"><p>Error adding employee. Email may already exist.</p></div>';
+        }
+    }
+    
+    // Handle delete
+    if (isset($_GET['delete']) && check_admin_referer('mh_delete_employee_' . $_GET['delete'])) {
+        $wpdb->update(
+            $table_name,
+            array('is_active' => 0),
+            array('id' => intval($_GET['delete'])),
+            array('%d'),
+            array('%d')
+        );
+        echo '<div class="notice notice-success"><p>Employee deactivated!</p></div>';
+    }
+    
+    $employees = $wpdb->get_results("SELECT * FROM $table_name WHERE is_active = 1 ORDER BY created_at DESC");
+    
+    ?>
+    <div class="wrap">
+        <h1>MarketHub Employees</h1>
+        
+        <div style="background: #fff; padding: 20px; margin: 20px 0; border: 1px solid #ccc;">
+            <h2>Add New Employee</h2>
+            <form method="post" action="">
+                <?php wp_nonce_field('mh_add_employee'); ?>
+                <table class="form-table">
+                    <tr>
+                        <th><label for="name">Full Name</label></th>
+                        <td><input type="text" name="name" id="name" class="regular-text" required></td>
+                    </tr>
+                    <tr>
+                        <th><label for="email">Email</label></th>
+                        <td><input type="email" name="email" id="email" class="regular-text" required></td>
+                    </tr>
+                    <tr>
+                        <th><label for="password">Password</label></th>
+                        <td><input type="password" name="password" id="password" class="regular-text" required></td>
+                    </tr>
+                </table>
+                <p class="submit">
+                    <input type="submit" name="add_employee" class="button button-primary" value="Add Employee">
+                </p>
+            </form>
+        </div>
+        
+        <h2>Current Employees</h2>
+        <table class="wp-list-table widefat fixed striped">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Created</th>
+                    <th>Last Login</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if (empty($employees)): ?>
+                    <tr><td colspan="6">No employees found.</td></tr>
+                <?php else: ?>
+                    <?php foreach ($employees as $emp): ?>
+                        <tr>
+                            <td><?php echo esc_html($emp->id); ?></td>
+                            <td><?php echo esc_html($emp->name); ?></td>
+                            <td><?php echo esc_html($emp->email); ?></td>
+                            <td><?php echo esc_html($emp->created_at); ?></td>
+                            <td><?php echo esc_html($emp->last_login ?: 'Never'); ?></td>
+                            <td>
+                                <a href="?page=markethub-employees&delete=<?php echo $emp->id; ?>&_wpnonce=<?php echo wp_create_nonce('mh_delete_employee_' . $emp->id); ?>" 
+                                   onclick="return confirm('Deactivate this employee?');"
+                                   class="button button-small">Deactivate</a>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+    <?php
+}
+
+// ==========================================
+// SNIPPET 17: Shortcode for Employee Panel Page
+// ==========================================
+add_shortcode('markethub_employee_panel', 'markethub_employee_panel_shortcode');
+function markethub_employee_panel_shortcode() {
+    return '<div id="markethub-employee-panel" style="min-height: 100vh;"></div>
+    <script>
+        // This is where the React app will be mounted
+        // You need to enqueue your React build here or embed the component
+        console.log("Employee panel mounted. Connect your React app here.");
+    </script>';
+}
+
+// ==========================================
+// SNIPPET 18: Create Employee Panel Page Automatically
+// ==========================================
+add_action('after_setup_theme', 'markethub_create_employee_page');
+function markethub_create_employee_page() {
+    // Check if page already exists
+    $page = get_page_by_path('employee-confirmation');
+    
+    if (!$page) {
+        $page_data = array(
+            'post_title'    => 'Employee Confirmation',
+            'post_content'  => '[markethub_employee_panel]',
+            'post_status'   => 'publish',
+            'post_type'     => 'page',
+            'post_name'     => 'employee-confirmation'
+        );
+        
+        wp_insert_post($page_data);
+    }
+}
+
+// ==========================================
+// SNIPPET 19: Email Notifications Enhancement
+// ==========================================
+add_action('woocommerce_order_status_changed', 'markethub_order_status_notifications', 10, 4);
+function markethub_order_status_notifications($order_id, $old_status, $new_status, $order) {
+    
+    // Notify customer when order approved
+    if ($new_status === 'processing' && $old_status === 'pending') {
+        $approved_by = $order->get_meta('_mh_approved_by');
+        if ($approved_by) {
+            // Send custom email
+            $to = $order->get_billing_email();
+            $subject = 'Payment Confirmed - Order #' . $order_id;
+            $message = "Hello " . $order->get_billing_first_name() . ",\n\n";
+            $message .= "Your payment has been confirmed and your order is now being prepared for delivery.\n\n";
+            $message .= "Order #: " . $order_id . "\n";
+            $message .= "Total: $" . $order->get_total() . "\n\n";
+            $message .= "A driver will be assigned shortly.\n\n";
+            $message .= "Thank you for shopping with MarketHub!";
+            
+            wp_mail($to, $subject, $message);
+        }
+    }
+    
+    // Notify customer when driver claims order
+    if ($new_status === 'driver-claimed') {
+        $driver_name = $order->get_meta('_mh_driver_name');
+        if ($driver_name) {
+            $to = $order->get_billing_email();
+            $subject = 'Driver Assigned - Order #' . $order_id;
+            $message = "Hello " . $order->get_billing_first_name() . ",\n\n";
+            $message .= "Good news! A driver has been assigned to your order.\n\n";
+            $message .= "Driver: " . $driver_name . "\n";
+            $message .= "Order #: " . $order_id . "\n\n";
+            $message .= "Your items are being collected and will be delivered soon.\n\n";
+            $message .= "Thank you for your patience!";
+            
+            wp_mail($to, $subject, $message);
+        }
+    }
+}
