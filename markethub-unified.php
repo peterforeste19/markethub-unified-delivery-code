@@ -15,10 +15,10 @@ if (!defined('ABSPATH')) { exit; }
 define('MHU_PLUGIN_VERSION', '1.0.0');
 
 define('MHU_SECURE_POD_DIR', wp_upload_dir()['basedir'] . '/markethub_pod');
-
 define('MHU_TOKEN_META', '_mhu_driver_token_hash');
-
 define('MHU_TOKEN_EXP_META', '_mhu_driver_token_exp');
+define('MHU_EMP_TOKEN_META', '_mhu_employee_token_hash');
+define('MHU_EMP_TOKEN_EXP_META', '_mhu_employee_token_exp');
 
 function mhu_now_mysql() {
     return current_time('mysql');
@@ -499,6 +499,154 @@ add_action('rest_api_init', function() {
         },
         'permission_callback' => '__return_true'
     ]);
+
+    // ================================
+    // Employee endpoints (WP users)
+    // ================================
+
+    // Employee login using WP auth, role check
+    register_rest_route('markethub/v1', '/employee/login', [
+        'methods' => 'POST',
+        'callback' => function(WP_REST_Request $request) {
+            $email = sanitize_email($request->get_param('email'));
+            $username = sanitize_user($request->get_param('username'));
+            $password = (string) $request->get_param('password');
+
+            $login = '';
+            if ($email) {
+                $u = get_user_by('email', $email);
+                if ($u) { $login = $u->user_login; }
+            } elseif ($username) {
+                $login = $username;
+            }
+            if (!$login || !$password) {
+                return new WP_REST_Response(['success'=>false,'message'=>'Missing credentials'], 400);
+            }
+
+            $user = wp_authenticate($login, $password);
+            if (is_wp_error($user)) {
+                return new WP_REST_Response(['success'=>false,'message'=>'Invalid credentials'], 401);
+            }
+            if (in_array('markethub_pending', (array) $user->roles, true)) {
+                return new WP_REST_Response(['success'=>false,'message'=>'Account pending approval'], 403);
+            }
+            if (!in_array('markethub_employees', (array) $user->roles, true) && !in_array('administrator', (array) $user->roles, true)) {
+                return new WP_REST_Response(['success'=>false,'message'=>'Insufficient permissions'], 403);
+            }
+
+            // Issue employee token
+            $token = wp_generate_password(32, false);
+            $hash = wp_hash_password($token);
+            update_user_meta($user->ID, MHU_EMP_TOKEN_META, $hash);
+            update_user_meta($user->ID, MHU_EMP_TOKEN_EXP_META, time() + 24*60*60);
+
+            return new WP_REST_Response(['success'=>true,'token'=>$token,'employee_name'=>$user->display_name,'user_id'=>$user->ID], 200);
+        },
+        'permission_callback' => '__return_true'
+    ]);
+
+    // Verify employee token helper
+    $verify_employee = function(WP_REST_Request $request) {
+        $auth = $request->get_header('authorization');
+        if (!$auth || stripos($auth, 'Bearer ') !== 0) { return new WP_Error('unauthorized', 'Missing token', ['status'=>401]); }
+        $token = trim(substr($auth, 7));
+        $users = get_users(['role__in' => ['markethub_employees','administrator'], 'fields' => 'ID']);
+        foreach ($users as $uid) {
+            $hash = get_user_meta($uid, MHU_EMP_TOKEN_META, true);
+            $exp = intval(get_user_meta($uid, MHU_EMP_TOKEN_EXP_META, true));
+            if ($hash && wp_check_password($token, $hash) && time() < $exp) {
+                $request->set_param('mhu_employee_user_id', $uid);
+                return true;
+            }
+        }
+        return new WP_Error('unauthorized', 'Invalid or expired token', ['status'=>401]);
+    };
+
+    $get_employee = function(WP_REST_Request $request) {
+        $uid = intval($request->get_param('mhu_employee_user_id'));
+        return $uid ? get_user_by('id', $uid) : null;
+    };
+
+    // Pending orders for employee review (bank transfer, cheque, COD)
+    register_rest_route('markethub/v1', '/employee/pending-orders', [
+        'methods' => 'GET',
+        'callback' => function(WP_REST_Request $request) use ($verify_employee) {
+            $auth = $verify_employee($request);
+            if (is_wp_error($auth)) { return $auth; }
+            if (!mhu_require_wc()) { return new WP_Error('no_wc', 'WooCommerce not available', ['status'=>500]); }
+
+            $orders = wc_get_orders([
+                'status' => ['pending','on-hold'],
+                'limit' => 50,
+                'orderby' => 'date',
+                'order' => 'DESC'
+            ]);
+            $allowed_methods = ['bacs','cheque','cod'];
+            $list = [];
+            foreach ($orders as $order) {
+                if (!in_array($order->get_payment_method(), $allowed_methods, true)) { continue; }
+                $items = [];
+                foreach ($order->get_items() as $item) {
+                    $items[] = [
+                        'name' => $item->get_name(),
+                        'quantity' => (int) $item->get_quantity(),
+                        'total' => (float) $item->get_total(),
+                    ];
+                }
+                $list[] = [
+                    'id' => $order->get_id(),
+                    'customer_name' => $order->get_billing_first_name().' '.$order->get_billing_last_name(),
+                    'customer_email' => $order->get_billing_email(),
+                    'customer_phone' => $order->get_billing_phone(),
+                    'delivery_address' => trim($order->get_billing_address_1().' '.$order->get_billing_city()),
+                    'total' => (float) $order->get_total(),
+                    'item_count' => count($items),
+                    'items' => $items,
+                    'payment_method' => $order->get_payment_method_title(),
+                    'status' => wc_get_order_status_name($order->get_status()),
+                    'date' => $order->get_date_created() ? $order->get_date_created()->date('Y-m-d H:i:s') : '',
+                    'transaction_id' => $order->get_transaction_id(),
+                    'customer_note' => $order->get_customer_note(),
+                ];
+            }
+            return new WP_REST_Response(['success'=>true,'orders'=>$list], 200);
+        },
+        'permission_callback' => '__return_true'
+    ]);
+
+    // Confirm or reject order
+    register_rest_route('markethub/v1', '/employee/confirm-order', [
+        'methods' => 'POST',
+        'callback' => function(WP_REST_Request $request) use ($verify_employee, $get_employee) {
+            $auth = $verify_employee($request);
+            if (is_wp_error($auth)) { return $auth; }
+            if (!mhu_require_wc()) { return new WP_Error('no_wc', 'WooCommerce not available', ['status'=>500]); }
+            $employee = $get_employee($request);
+
+            $order_id = intval($request->get_param('order_id'));
+            $action = sanitize_text_field($request->get_param('action'));
+            if (!$order_id || !in_array($action, ['approve','reject'], true)) {
+                return new WP_REST_Response(['success'=>false,'message'=>'Invalid request'], 400);
+            }
+            $order = wc_get_order($order_id);
+            if (!$order) { return new WP_REST_Response(['success'=>false,'message'=>'Order not found'], 404); }
+
+            if ($action === 'approve') {
+                $order->set_status('processing');
+                $order->update_meta_data('_mh_approved_by', $employee ? $employee->display_name : 'Employee');
+                $order->update_meta_data('_mh_approved_at', mhu_now_mysql());
+                $order->add_order_note(sprintf('Payment confirmed by %s. Order ready for driver assignment.', $employee ? $employee->display_name : 'employee'));
+            } else {
+                $order->set_status('cancelled');
+                $order->update_meta_data('_mh_rejected_by', $employee ? $employee->display_name : 'Employee');
+                $order->update_meta_data('_mh_rejected_at', mhu_now_mysql());
+                $order->add_order_note(sprintf('Order rejected by %s. Payment not confirmed.', $employee ? $employee->display_name : 'employee'));
+            }
+            $order->save();
+            return new WP_REST_Response(['success'=>true,'message'=> $action === 'approve' ? 'Order approved' : 'Order rejected'], 200);
+        },
+        'permission_callback' => '__return_true'
+    ]);
 });
 
 // Helper: derive store coords from MarketHub checkout/order meta and options
@@ -682,7 +830,7 @@ function MapRoute({ customer, store }) {
     });
   }, [gLoaded, customer, store]);
   return (
-    <div className="w-full" style={{height: '60vh'}} ref={mapRef} />
+    <div className="w-full" style={{height: '100vh'}} ref={mapRef} />
   );
 }
 
