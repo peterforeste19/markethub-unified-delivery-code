@@ -1,10 +1,4 @@
 <?php
-/**
- * Plugin Name: MarketHub Unified Delivery & Access Control
- * Description: Roles, signup/login control, driver app shortcode with Google Maps, and REST API integrating WooCommerce orders and checkout GPS data.
- * Version: 1.0.0
- * Author: MarketHub TT
- */
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -12,13 +6,25 @@ if (!defined('ABSPATH')) { exit; }
 // SECTION 0: CONSTANTS/HELPERS
 // =============================
 
-define('MHU_PLUGIN_VERSION', '1.0.0');
-
-define('MHU_SECURE_POD_DIR', wp_upload_dir()['basedir'] . '/markethub_pod');
-define('MHU_TOKEN_META', '_mhu_driver_token_hash');
-define('MHU_TOKEN_EXP_META', '_mhu_driver_token_exp');
-define('MHU_EMP_TOKEN_META', '_mhu_employee_token_hash');
-define('MHU_EMP_TOKEN_EXP_META', '_mhu_employee_token_exp');
+if (!defined('MHU_PLUGIN_VERSION')) {
+    define('MHU_PLUGIN_VERSION', '1.0.0');
+}
+if (!defined('MHU_SECURE_POD_DIR')) {
+    $mhu_uploads = wp_upload_dir();
+    define('MHU_SECURE_POD_DIR', $mhu_uploads['basedir'] . '/markethub_pod');
+}
+if (!defined('MHU_TOKEN_META')) {
+    define('MHU_TOKEN_META', '_mhu_driver_token_hash');
+}
+if (!defined('MHU_TOKEN_EXP_META')) {
+    define('MHU_TOKEN_EXP_META', '_mhu_driver_token_exp');
+}
+if (!defined('MHU_EMP_TOKEN_META')) {
+    define('MHU_EMP_TOKEN_META', '_mhu_employee_token_hash');
+}
+if (!defined('MHU_EMP_TOKEN_EXP_META')) {
+    define('MHU_EMP_TOKEN_EXP_META', '_mhu_employee_token_exp');
+}
 
 function mhu_now_mysql() {
     return current_time('mysql');
@@ -76,21 +82,14 @@ function mhu_add_statuses_to_wc($statuses) {
 }
 add_filter('wc_order_statuses', 'mhu_add_statuses_to_wc');
 
-register_activation_hook(__FILE__, function() {
-    mhu_register_roles();
-    mhu_remove_legacy_roles();
-    mhu_register_custom_statuses();
-
-    // Ensure secure POD directory exists
-    if (!file_exists(MHU_SECURE_POD_DIR)) {
-        wp_mkdir_p(MHU_SECURE_POD_DIR);
-    }
-    // Harden directory with .htaccess deny
+// Ensure secure POD directory exists on-demand (no activation hook in WPCode)
+if (!file_exists(MHU_SECURE_POD_DIR)) {
+    wp_mkdir_p(MHU_SECURE_POD_DIR);
     $htaccess = MHU_SECURE_POD_DIR . '/.htaccess';
     if (!file_exists($htaccess)) {
-        file_put_contents($htaccess, "Require all denied\n");
+        @file_put_contents($htaccess, "Require all denied\n");
     }
-});
+}
 
 // =====================================================
 // SECTION 2: REGISTRATION FIELD + PENDING ROLE ASSIGN
@@ -789,6 +788,7 @@ add_action('wp_ajax_mhu_view_pod', function() {
 // SECTION 6: SHORTCODE - REACT DRIVER APP + MAP
 // =============================================
 
+if (!shortcode_exists('markethub_driver_app')) {
 add_shortcode('markethub_driver_app', function() {
     ob_start();
     $api_base = esc_url_raw( rest_url('markethub/v1') );
@@ -1082,5 +1082,6 @@ root.render(<App />);
 <?php
     return ob_get_clean();
 });
+}
 
 ?>
